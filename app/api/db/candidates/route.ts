@@ -1,60 +1,64 @@
 import { NextResponse } from "next/server"
-import { db } from "@/lib/db"
-import { candidates, applications } from "@/lib/db/schema"
-import { scoredCandidateToDBCandidate, createDBApplication } from "@/lib/db/converters"
+import { createClient } from "@/lib/supabase/server"
+import { scoredCandidateToDBCandidate, createDBApplication } from "@/lib/supabase/db"
 import type { ScoredCandidate } from "@/lib/types"
-import { eq, and, desc } from "drizzle-orm"
-import { jsonStringify } from "@/lib/db/queries/helpers"
 
 export async function POST(request: Request) {
   try {
-    const { candidates: candidatesList, vacancyId, searchSessionId } = (await request.json()) as {
+    const { candidates, vacancyId, searchSessionId } = (await request.json()) as {
       candidates: ScoredCandidate[]
       vacancyId?: string
       searchSessionId?: string
     }
 
-    if (!candidatesList || !Array.isArray(candidatesList) || candidatesList.length === 0) {
+    if (!candidates || !Array.isArray(candidates) || candidates.length === 0) {
       return NextResponse.json({ error: "Нет кандидатов для сохранения" }, { status: 400 })
     }
+
+    const supabase = await createClient()
 
     const savedCandidates: string[] = []
     const errors: string[] = []
 
-    for (const candidate of candidatesList) {
+    for (const candidate of candidates) {
       const dbCandidate = scoredCandidateToDBCandidate(candidate)
 
       // Check if candidate already exists by external_id
-      const [existing] = await db
-        .select({ id: candidates.id })
-        .from(candidates)
-        .where(eq(candidates.externalId, dbCandidate.external_id))
-        .limit(1)
+      const { data: existing } = await supabase
+        .from("candidates")
+        .select("id")
+        .eq("external_id", dbCandidate.external_id)
+        .single()
 
       let candidateId: string
 
       if (existing) {
         // Update existing candidate
-        await db
-          .update(candidates)
-          .set({
+        const { error: updateError } = await supabase
+          .from("candidates")
+          .update({
             ...dbCandidate,
-            skills: jsonStringify(dbCandidate.skills),
-            tags: jsonStringify(dbCandidate.tags),
-            updatedAt: new Date(),
+            updated_at: new Date().toISOString(),
           })
-          .where(eq(candidates.id, existing.id))
+          .eq("id", existing.id)
+
+        if (updateError) {
+          errors.push(`Ошибка обновления ${candidate.fullName}: ${updateError.message}`)
+          continue
+        }
         candidateId = existing.id
       } else {
         // Insert new candidate
-        const [inserted] = await db
-          .insert(candidates)
-          .values({
-            ...dbCandidate,
-            skills: jsonStringify(dbCandidate.skills),
-            tags: jsonStringify(dbCandidate.tags),
-          })
-          .returning({ id: candidates.id })
+        const { data: inserted, error: insertError } = await supabase
+          .from("candidates")
+          .insert(dbCandidate)
+          .select("id")
+          .single()
+
+        if (insertError) {
+          errors.push(`Ошибка сохранения ${candidate.fullName}: ${insertError.message}`)
+          continue
+        }
         candidateId = inserted.id
       }
 
@@ -63,44 +67,42 @@ export async function POST(request: Request) {
       // Create application if vacancy provided
       if (vacancyId && candidateId) {
         // Check if application already exists
-        let existingApp
+        let existingAppQuery = supabase
+          .from("applications")
+          .select("id")
+          .eq("candidate_id", candidateId)
+          .eq("vacancy_id", vacancyId)
+
+        // If we have a session, check by session+candidate unique constraint
         if (searchSessionId) {
-          ;[existingApp] = await db
-            .select({ id: applications.id })
-            .from(applications)
-            .where(
-              and(
-                eq(applications.candidateId, candidateId),
-                eq(applications.vacancyId, vacancyId),
-                eq(applications.searchSessionId, searchSessionId),
-              ),
-            )
-            .limit(1)
-        } else {
-          ;[existingApp] = await db
-            .select({ id: applications.id })
-            .from(applications)
-            .where(and(eq(applications.candidateId, candidateId), eq(applications.vacancyId, vacancyId)))
-            .limit(1)
+          existingAppQuery = existingAppQuery.eq("search_session_id", searchSessionId)
         }
+
+        const { data: existingApp } = await existingAppQuery.single()
 
         if (!existingApp) {
           const application = createDBApplication(candidate, candidateId, vacancyId, searchSessionId)
-          await db.insert(applications).values({
-            ...application,
-            scoreBreakdown: jsonStringify(application.score_breakdown),
-          })
+
+          const { error: appError } = await supabase.from("applications").insert(application)
+
+          if (appError) {
+            errors.push(`Ошибка создания заявки для ${candidate.fullName}: ${appError.message}`)
+          }
         } else {
           // Update existing application with new score
-          await db
-            .update(applications)
-            .set({
+          const { error: updateAppError } = await supabase
+            .from("applications")
+            .update({
               score: candidate.score,
-              scoreBreakdown: jsonStringify(candidate.breakdown),
+              score_breakdown: candidate.breakdown,
               rating: candidate.rating,
-              updatedAt: new Date(),
+              updated_at: new Date().toISOString(),
             })
-            .where(eq(applications.id, existingApp.id))
+            .eq("id", existingApp.id)
+
+          if (updateAppError) {
+            errors.push(`Ошибка обновления заявки для ${candidate.fullName}: ${updateAppError.message}`)
+          }
         }
       }
     }
@@ -108,7 +110,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       saved: savedCandidates.length,
-      total: candidatesList.length,
+      total: candidates.length,
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {
@@ -119,21 +121,20 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    const candidatesList = await db
-      .select()
-      .from(candidates)
-      .where(eq(candidates.source, "hh.ru"))
-      .orderBy(desc(candidates.createdAt))
-      .limit(500)
+    const supabase = await createClient()
 
-    // Parse JSON fields
-    const parsedCandidates = candidatesList.map((c) => ({
-      ...c,
-      skills: c.skills ? JSON.parse(c.skills) : [],
-      tags: c.tags ? JSON.parse(c.tags) : [],
-    }))
+    const { data, error } = await supabase
+      .from("candidates")
+      .select("*")
+      .eq("source", "hh.ru")
+      .order("created_at", { ascending: false })
+      .limit(100)
 
-    return NextResponse.json({ candidates: parsedCandidates })
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ candidates: data })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Ошибка загрузки" }, { status: 500 })
   }
