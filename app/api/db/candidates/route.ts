@@ -4,7 +4,7 @@ import { candidates, applications } from "@/lib/db/schema"
 import { scoredCandidateToDBCandidate, createDBApplication } from "@/lib/db/converters"
 import type { ScoredCandidate } from "@/lib/types"
 import { eq, and, desc } from "drizzle-orm"
-import { jsonStringify } from "@/lib/db/queries/helpers"
+import { jsonStringify, jsonParse } from "@/lib/db/queries/helpers"
 
 export async function POST(request: Request) {
   try {
@@ -22,86 +22,135 @@ export async function POST(request: Request) {
     const errors: string[] = []
 
     for (const candidate of candidatesList) {
-      const dbCandidate = scoredCandidateToDBCandidate(candidate)
+      try {
+        const dbCandidate = scoredCandidateToDBCandidate(candidate)
 
-      // Check if candidate already exists by external_id
-      const [existing] = await db
-        .select({ id: candidates.id })
-        .from(candidates)
-        .where(eq(candidates.externalId, dbCandidate.external_id))
-        .limit(1)
+        // Check if candidate already exists by external_id
+        const [existing] = await db
+          .select({ id: candidates.id })
+          .from(candidates)
+          .where(eq(candidates.externalId, dbCandidate.external_id))
+          .limit(1)
 
-      let candidateId: string
+        let candidateId: string
 
-      if (existing) {
-        // Update existing candidate
-        await db
-          .update(candidates)
-          .set({
-            ...dbCandidate,
-            skills: jsonStringify(dbCandidate.skills),
-            tags: jsonStringify(dbCandidate.tags),
-            updatedAt: new Date(),
-          })
-          .where(eq(candidates.id, existing.id))
-        candidateId = existing.id
-      } else {
-        // Insert new candidate
-        const [inserted] = await db
-          .insert(candidates)
-          .values({
-            ...dbCandidate,
-            skills: jsonStringify(dbCandidate.skills),
-            tags: jsonStringify(dbCandidate.tags),
-          })
-          .returning({ id: candidates.id })
-        candidateId = inserted.id
-      }
-
-      savedCandidates.push(candidateId)
-
-      // Create application if vacancy provided
-      if (vacancyId && candidateId) {
-        // Check if application already exists
-        let existingApp
-        if (searchSessionId) {
-          ;[existingApp] = await db
-            .select({ id: applications.id })
-            .from(applications)
-            .where(
-              and(
-                eq(applications.candidateId, candidateId),
-                eq(applications.vacancyId, vacancyId),
-                eq(applications.searchSessionId, searchSessionId),
-              ),
-            )
-            .limit(1)
-        } else {
-          ;[existingApp] = await db
-            .select({ id: applications.id })
-            .from(applications)
-            .where(and(eq(applications.candidateId, candidateId), eq(applications.vacancyId, vacancyId)))
-            .limit(1)
-        }
-
-        if (!existingApp) {
-          const application = createDBApplication(candidate, candidateId, vacancyId, searchSessionId)
-          await db.insert(applications).values({
-            ...application,
-            scoreBreakdown: jsonStringify(application.score_breakdown),
-          })
-        } else {
-          // Update existing application with new score
+        if (existing) {
+          // Update existing candidate - convert snake_case to camelCase for Drizzle
           await db
-            .update(applications)
+            .update(candidates)
             .set({
-              score: candidate.score,
-              scoreBreakdown: jsonStringify(candidate.breakdown),
-              rating: candidate.rating,
+              externalId: dbCandidate.external_id,
+              fullName: dbCandidate.full_name,
+              firstName: dbCandidate.first_name,
+              lastName: dbCandidate.last_name,
+              middleName: dbCandidate.middle_name,
+              email: dbCandidate.email,
+              phone: dbCandidate.phone,
+              currentPosition: dbCandidate.current_position,
+              currentCompany: dbCandidate.current_company,
+              location: dbCandidate.location,
+              experienceYears: dbCandidate.experience_years,
+              skills: jsonStringify(dbCandidate.skills),
+              tags: jsonStringify(dbCandidate.tags),
+              resumeUrl: dbCandidate.resume_url,
+              resumeText: dbCandidate.resume_text,
+              summary: dbCandidate.summary,
+              source: dbCandidate.source,
+              companyId: dbCandidate.company_id,
+              status: dbCandidate.status,
+              paidAccess: dbCandidate.paid_access,
+              notes: dbCandidate.notes,
               updatedAt: new Date(),
             })
-            .where(eq(applications.id, existingApp.id))
+            .where(eq(candidates.id, existing.id))
+          candidateId = existing.id
+        } else {
+          // Insert new candidate - convert snake_case to camelCase for Drizzle
+          const [inserted] = await db
+            .insert(candidates)
+            .values({
+              externalId: dbCandidate.external_id,
+              fullName: dbCandidate.full_name,
+              firstName: dbCandidate.first_name,
+              lastName: dbCandidate.last_name,
+              middleName: dbCandidate.middle_name,
+              email: dbCandidate.email,
+              phone: dbCandidate.phone,
+              currentPosition: dbCandidate.current_position,
+              currentCompany: dbCandidate.current_company,
+              location: dbCandidate.location,
+              experienceYears: dbCandidate.experience_years,
+              skills: jsonStringify(dbCandidate.skills),
+              tags: jsonStringify(dbCandidate.tags),
+              resumeUrl: dbCandidate.resume_url,
+              resumeText: dbCandidate.resume_text,
+              summary: dbCandidate.summary,
+              source: dbCandidate.source,
+              companyId: dbCandidate.company_id,
+              status: dbCandidate.status,
+              paidAccess: dbCandidate.paid_access,
+              notes: dbCandidate.notes,
+            })
+            .returning({ id: candidates.id })
+          candidateId = inserted.id
         }
+
+        savedCandidates.push(candidateId)
+
+        // Create application if vacancy provided
+        if (vacancyId && candidateId) {
+          // Check if application already exists
+          let existingApp
+          if (searchSessionId) {
+            ;[existingApp] = await db
+              .select({ id: applications.id })
+              .from(applications)
+              .where(
+                and(
+                  eq(applications.candidateId, candidateId),
+                  eq(applications.vacancyId, vacancyId),
+                  eq(applications.searchSessionId, searchSessionId),
+                ),
+              )
+              .limit(1)
+          } else {
+            ;[existingApp] = await db
+              .select({ id: applications.id })
+              .from(applications)
+              .where(and(eq(applications.candidateId, candidateId), eq(applications.vacancyId, vacancyId)))
+              .limit(1)
+          }
+
+          if (!existingApp) {
+            const application = createDBApplication(candidate, candidateId, vacancyId, searchSessionId)
+            await db.insert(applications).values({
+              searchSessionId: application.search_session_id,
+              candidateId: application.candidate_id,
+              vacancyId: application.vacancy_id,
+              status: application.status,
+              score: application.score,
+              scoreBreakdown: jsonStringify(application.score_breakdown),
+              rating: application.rating,
+              notes: application.notes,
+              assignedTo: application.assigned_to,
+            })
+          } else {
+            // Update existing application with new score
+            await db
+              .update(applications)
+              .set({
+                score: candidate.score,
+                scoreBreakdown: jsonStringify(candidate.breakdown),
+                rating: candidate.rating,
+                updatedAt: new Date(),
+              })
+              .where(eq(applications.id, existingApp.id))
+          }
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Неизвестная ошибка"
+        errors.push(`Ошибка сохранения ${candidate.fullName}: ${errorMessage}`)
+        continue
       }
     }
 
@@ -126,11 +175,11 @@ export async function GET() {
       .orderBy(desc(candidates.createdAt))
       .limit(500)
 
-    // Parse JSON fields
+    // Parse JSON fields with error handling per candidate
     const parsedCandidates = candidatesList.map((c) => ({
       ...c,
-      skills: c.skills ? JSON.parse(c.skills) : [],
-      tags: c.tags ? JSON.parse(c.tags) : [],
+      skills: jsonParse<string[]>(c.skills) || [],
+      tags: jsonParse<string[]>(c.tags) || [],
     }))
 
     return NextResponse.json({ candidates: parsedCandidates })
