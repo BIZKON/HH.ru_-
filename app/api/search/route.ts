@@ -6,22 +6,33 @@ import { getDecryptedToken } from "@/lib/db/queries/tokens"
 
 export async function POST(request: NextRequest) {
   try {
-    // Получаем пользователя
+    console.log("[API] Search request received")
+
+    // Получаем пользователя (для авторизованных пользователей)
     const user = await getUserFromSession()
-    if (!user) {
-      return NextResponse.json({ error: "Не авторизован" }, { status: 401 })
+    console.log("[API] User from session:", user ? user.email : "No user")
+
+    const body = await request.json()
+    console.log("[API] Request body:", JSON.stringify(body))
+
+    const { token: providedToken, resume_search_period, ...searchParams } = body as {
+      token?: string
+      resume_search_period?: number
+    } & HHSearchParams
+
+    console.log("[API] Provided token:", providedToken ? `${providedToken.substring(0, 10)}...` : "No token in request")
+
+    // Определяем токен: из запроса или из БД (для авторизованных пользователей)
+    let token: string | null = providedToken || null
+
+    if (!token && user) {
+      // Для авторизованного пользователя берем токен из БД
+      token = await getDecryptedToken(user.id)
     }
 
-    // Получаем токен из БД
-    const token = await getDecryptedToken(user.id)
     if (!token) {
       return NextResponse.json({ error: "API токен не найден. Пожалуйста, введите токен." }, { status: 400 })
     }
-
-    const body = await request.json()
-    const { resume_search_period, ...searchParams } = body as {
-      resume_search_period?: number
-    } & HHSearchParams
 
     if (!searchParams.text) {
       return NextResponse.json({ error: "Поисковый запрос обязателен" }, { status: 400 })
@@ -38,7 +49,12 @@ export async function POST(request: NextRequest) {
       ;(params as any).resume_search_period = resume_search_period
     }
 
+    console.log("[API] Calling searchResumes with token:", token ? `${token.substring(0, 10)}...` : "NO TOKEN")
+    console.log("[API] Search params:", JSON.stringify(params))
+
     const result = await searchResumes(token, params)
+
+    console.log("[API] Search successful. Found:", result.found, "resumes")
 
     const candidates = result.data.map(transformResumeToCandidate)
 
@@ -50,7 +66,11 @@ export async function POST(request: NextRequest) {
       page: result.page,
     })
   } catch (error) {
-    console.error("Search API error:", error)
+    console.error("[API] Search API error:", error)
+    console.error("[API] Error details:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    })
     const message = error instanceof Error ? error.message : "Произошла ошибка при поиске"
     return NextResponse.json({ error: message }, { status: 500 })
   }

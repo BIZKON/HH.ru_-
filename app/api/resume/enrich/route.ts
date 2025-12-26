@@ -5,11 +5,18 @@ import { getDecryptedToken } from "@/lib/db/queries/tokens"
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("[API] Resume enrich request received")
+
     // Получаем пользователя (для авторизованных пользователей)
     const user = await getUserFromSession()
+    console.log("[API] User from session:", user ? user.email : "No user")
 
     const body = await request.json()
+    console.log("[API] Request body:", JSON.stringify(body))
+
     const { resumeId, token: providedToken } = body as { resumeId: string; token?: string }
+    console.log("[API] Resume ID:", resumeId)
+    console.log("[API] Provided token:", providedToken ? `${providedToken.substring(0, 10)}...` : "No token in request")
 
     if (!resumeId) {
       return NextResponse.json({ error: "ID резюме обязателен" }, { status: 400 })

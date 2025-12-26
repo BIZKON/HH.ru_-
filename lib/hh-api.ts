@@ -156,6 +156,9 @@ export async function searchResumes(
   // Add parameter to request contact information (name, phone, email)
   searchParams.append("with_fields", "contacts")
 
+  console.log(`[HH API] Making search request to: ${HH_API_BASE}/resumes?${searchParams}`)
+  console.log(`[HH API] Using token: ${token ? token.substring(0, 10) + '...' : 'NO TOKEN'}`)
+
   const response = await fetch(`${HH_API_BASE}/resumes?${searchParams}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -164,9 +167,19 @@ export async function searchResumes(
     },
   })
 
+  console.log(`[HH API] Response status: ${response.status}`)
+
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.description || `API Error: ${response.status}`)
+    const errorText = await response.text()
+    console.error(`[HH API] Error response body:`, errorText)
+    let error
+    try {
+      error = JSON.parse(errorText)
+    } catch {
+      error = { description: errorText }
+    }
+    console.error(`[HH API] Parsed error:`, error)
+    throw new Error(error.description || error.error || `API Error: ${response.status}`)
   }
 
   const data = await response.json()

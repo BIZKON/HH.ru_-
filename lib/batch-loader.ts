@@ -42,6 +42,8 @@ export async function loadAllResumes(
   const maxPages = Math.ceil(maxResults / 20)
 
   console.log("[v0] Starting batch load with autosave:", !!vacancyConfig)
+  console.log("[v0] Token provided:", token ? `${token.substring(0, 10)}...` : "NO TOKEN")
+  console.log("[v0] Search params:", JSON.stringify(searchParams))
 
   try {
     // Phase 1: Loading pages
@@ -55,20 +57,27 @@ export async function loadAllResumes(
         message: `Загрузка страницы ${page + 1}...`,
       })
 
+      console.log(`[v0] Making search request to /api/search for page ${page}`)
+      const searchRequestBody = {
+        token,
+        ...searchParams,
+        page,
+        per_page: 20,
+      }
+      console.log("[v0] Search request body:", JSON.stringify(searchRequestBody))
+
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          ...searchParams,
-          page,
-          per_page: 20,
-        }),
+        body: JSON.stringify(searchRequestBody),
       })
 
+      console.log(`[v0] Search response status: ${response.status}`)
+
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || `Ошибка загрузки: ${response.status}`)
+        const error = await response.json().catch(() => ({}))
+        console.error("[v0] Search API error:", error)
+        throw new Error(error.error || error.description || `Ошибка загрузки: ${response.status}`)
       }
 
       const data = await response.json()
@@ -136,16 +145,22 @@ export async function loadAllResumes(
         // Параллельно получаем полные данные для батча
         const enrichmentPromises = batch.map(async (resume) => {
           try {
+            console.log(`[v0] Enriching resume ${resume.id}`)
+            const enrichRequestBody = {
+              resumeId: resume.id,
+              token: token // Передаем токен HH.ru в запрос
+            }
+            console.log("[v0] Enrich request body:", JSON.stringify(enrichRequestBody))
+
             const response = await fetch("/api/resume/enrich", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({
-                resumeId: resume.id,
-                token: token // Передаем токен HH.ru в запрос
-              }),
+              body: JSON.stringify(enrichRequestBody),
             })
+
+            console.log(`[v0] Enrich response status for ${resume.id}: ${response.status}`)
 
             if (response.ok) {
               const data = await response.json()
