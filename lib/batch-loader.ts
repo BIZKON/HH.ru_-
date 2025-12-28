@@ -31,7 +31,6 @@ interface SearchParams {
 }
 
 export async function loadAllResumes(
-  token: string,
   searchParams: SearchParams,
   scoringConfig: ScoringConfig,
   onProgress: (progress: BatchProgress) => void,
@@ -59,7 +58,6 @@ export async function loadAllResumes(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token,
           ...searchParams,
           page,
           per_page: 20,

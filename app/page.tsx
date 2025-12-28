@@ -1,10 +1,9 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { TokenInput } from "@/components/token-input"
 import { SearchForm } from "@/components/search-form"
 import { CandidatesList } from "@/components/candidates-list"
 import { StatisticsCard } from "@/components/statistics-card"
@@ -17,7 +16,7 @@ import { SaveToDBButton } from "@/components/save-to-db-button"
 import { loadAllResumes, type BatchProgress } from "@/lib/batch-loader"
 import type { ScoringConfig } from "@/lib/scoring"
 import type { SearchFilters, ScoredCandidate, VacancyConfig } from "@/lib/types"
-import { Rocket, Search, Database, BookOpen, LayoutDashboard, MessagesSquare, User } from "lucide-react"
+import { Rocket, Search, Database, BookOpen, LayoutDashboard, MessagesSquare, User, Key } from "lucide-react"
 import { AuthDialog } from "@/components/auth-dialog"
 import Link from "next/link"
 
@@ -34,7 +33,6 @@ const defaultFilters: SearchFilters = {
 }
 
 export default function HomePage() {
-  const [token, setToken] = useState("")
   const [filters, setFilters] = useState<SearchFilters>(defaultFilters)
   const [candidates, setCandidates] = useState<ScoredCandidate[]>([])
   const [totalFound, setTotalFound] = useState(0)
@@ -53,6 +51,36 @@ export default function HomePage() {
   const [currentSearchSessionId, setCurrentSearchSessionId] = useState<string | undefined>()
   const [currentDbVacancyId, setCurrentDbVacancyId] = useState<string | undefined>()
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [hasToken, setHasToken] = useState<boolean | null>(null)
+
+  // Проверка авторизации при загрузке
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch("/api/auth/me")
+        if (response.ok) {
+          const data = await response.json()
+          setIsAuthenticated(!!data.user)
+
+          // Проверяем наличие токена
+          if (data.user) {
+            const tokenResponse = await fetch("/api/token")
+            if (tokenResponse.ok) {
+              const tokenData = await tokenResponse.json()
+              setHasToken(tokenData.hasToken)
+            }
+          }
+        } else {
+          setIsAuthenticated(false)
+        }
+      } catch (error) {
+        console.error("Error checking auth:", error)
+        setIsAuthenticated(false)
+      }
+    }
+    checkAuth()
+  }, [isAuthDialogOpen])
 
   const getScoringConfig = (): ScoringConfig => ({
     experience: {
@@ -77,7 +105,7 @@ export default function HomePage() {
   })
 
   const performBatchSearch = useCallback(async () => {
-    if (!token || !filters.text.trim()) return
+    if (!filters.text.trim()) return
 
     setIsLoading(true)
     setIsBatchMode(true)
@@ -89,7 +117,6 @@ export default function HomePage() {
 
     try {
       const scoredCandidates = await loadAllResumes(
-        token,
         {
           text: filters.text,
           area: filters.area && filters.area !== "all" ? filters.area : undefined,
@@ -134,11 +161,11 @@ export default function HomePage() {
     } finally {
       setIsLoading(false)
     }
-  }, [token, filters, vacancyConfig, autoSaveEnabled])
+  }, [filters, vacancyConfig, autoSaveEnabled])
 
   const performSimpleSearch = useCallback(
     async (page = 0) => {
-      if (!token || !filters.text.trim()) return
+      if (!filters.text.trim()) return
 
       setIsLoading(true)
       setIsBatchMode(false)
@@ -153,7 +180,6 @@ export default function HomePage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            token,
             text: filters.text,
             area: filters.area && filters.area !== "all" ? filters.area : undefined,
             experience: filters.experience && filters.experience !== "any" ? filters.experience : undefined,
@@ -205,7 +231,7 @@ export default function HomePage() {
         setIsLoading(false)
       }
     },
-    [token, filters, vacancyConfig],
+    [filters, vacancyConfig],
   )
 
   const handleSearch = () => {
@@ -282,52 +308,85 @@ export default function HomePage() {
       <AuthDialog open={isAuthDialogOpen} onOpenChange={setIsAuthDialogOpen} />
 
       <main className="mx-auto max-w-5xl space-y-6 p-4">
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle className="text-xl">1. API Авторизация</CardTitle>
-            <CardDescription>Введите токен для доступа к API HH.ru</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TokenInput value={token} onChange={setToken} />
-          </CardContent>
-        </Card>
-
-        {token && (
-          <div className="space-y-2">
-            <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
-                2
-              </span>
-              Настройте вакансию
-            </h2>
-            <VacancyConfigForm
-              config={vacancyConfig}
-              onChange={setVacancyConfig}
-              token={token}
-              onFiltersChange={handleFiltersUpdate}
-            />
-          </div>
+        {isAuthenticated === false && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Требуется авторизация</CardTitle>
+              <CardDescription>Войдите в систему для доступа к функциям поиска</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => setIsAuthDialogOpen(true)} className="w-full">
+                <User className="h-4 w-4 mr-2" />
+                Войти / Зарегистрироваться
+              </Button>
+            </CardContent>
+          </Card>
         )}
 
-        {token && (
+        {isAuthenticated && hasToken === false && (
           <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
-                  3
-                </span>
-                Поиск кандидатов
-              </CardTitle>
-              <CardDescription>Найдите подходящих специалистов по резюме на HH.ru</CardDescription>
+            <CardHeader>
+              <CardTitle>Требуется API токен HH.ru</CardTitle>
+              <CardDescription>
+                Добавьте API токен HH.ru для выполнения поисковых запросов
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <SearchForm
-                filters={filters}
-                onFiltersChange={setFilters}
-                onSearch={handleSearch}
-                isLoading={isLoading}
-                hasToken={!!token}
+              <Link href="/settings">
+                <Button className="w-full">
+                  <Key className="h-4 w-4 mr-2" />
+                  Добавить токен в настройках
+                </Button>
+              </Link>
+              <p className="text-xs text-muted-foreground text-center">
+                Получить токен можно на{" "}
+                <a
+                  href="https://dev.hh.ru/admin"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  dev.hh.ru/admin
+                </a>
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {isAuthenticated && hasToken && (
+          <>
+            <div className="space-y-2">
+              <h2 className="flex items-center gap-2 text-lg font-semibold">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
+                  1
+                </span>
+                Настройте вакансию
+              </h2>
+              <VacancyConfigForm
+                config={vacancyConfig}
+                onChange={setVacancyConfig}
+                onFiltersChange={handleFiltersUpdate}
               />
+            </div>
+
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
+                    2
+                  </span>
+                  Поиск кандидатов
+                </CardTitle>
+                <CardDescription>Найдите подходящих специалистов по резюме на HH.ru</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <SearchForm
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  onSearch={handleSearch}
+                  isLoading={isLoading}
+                  hasToken={true}
+                />
 
               <div className="flex flex-wrap gap-3 border-t pt-4">
                 <Button onClick={handleSearch} disabled={isLoading || !filters.text.trim()} className="gap-2">
@@ -379,45 +438,44 @@ export default function HomePage() {
               </p>
             </CardContent>
           </Card>
-        )}
 
-        {batchProgress && <BatchProgressCard progress={batchProgress} />}
+            {batchProgress && <BatchProgressCard progress={batchProgress} />}
 
-        {error && (
-          <Card className="border-destructive bg-destructive/10">
-            <CardContent className="p-4">
-              <p className="text-sm text-destructive">{error}</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {lastQuery && !error && (
-          <StatisticsCard totalFound={totalFound} searchTime={searchTime} searchQuery={lastQuery} />
-        )}
-
-        {(candidates.length > 0 || isLoading) && (
-          <div className="space-y-4">
-            {candidates.length > 0 && !isLoading && (
-              <Card>
+            {error && (
+              <Card className="border-destructive bg-destructive/10">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">Найдено {candidates.length} кандидатов</p>
-                        <p className="text-xs text-muted-foreground">
-                          Сохраните их в базу данных, чтобы просматривать в любой момент
-                        </p>
-                      </div>
-                    </div>
-                    <SaveToDBButton candidates={candidates} vacancyConfig={vacancyConfig} disabled={isLoading} />
-                  </div>
+                  <p className="text-sm text-destructive">{error}</p>
                 </CardContent>
               </Card>
             )}
-            <CandidatesList
-              candidates={candidates}
-              totalFound={totalFound}
+
+            {lastQuery && !error && (
+              <StatisticsCard totalFound={totalFound} searchTime={searchTime} searchQuery={lastQuery} />
+            )}
+
+            {(candidates.length > 0 || isLoading) && (
+              <div className="space-y-4">
+                {candidates.length > 0 && !isLoading && (
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Database className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium">Найдено {candidates.length} кандидатов</p>
+                            <p className="text-xs text-muted-foreground">
+                              Сохраните их в базу данных, чтобы просматривать в любой момент
+                            </p>
+                          </div>
+                        </div>
+                        <SaveToDBButton candidates={candidates} vacancyConfig={vacancyConfig} disabled={isLoading} />
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                <CandidatesList
+                  candidates={candidates}
+                  totalFound={totalFound}
               currentPage={currentPage}
               totalPages={isBatchMode ? 1 : totalPages}
               onPageChange={handlePageChange}
@@ -425,21 +483,9 @@ export default function HomePage() {
               vacancyConfig={vacancyConfig}
               onInvite={handleInvite}
             />
-          </div>
-        )}
-
-        {!token && candidates.length === 0 && !isLoading && (
-          <Card className="bg-muted/30">
-            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <svg className="h-16 w-16 text-muted-foreground/30" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5S15.41 5 14 5 12 7.01 12 9.5 14 14 15.5 14z" />
-              </svg>
-              <h3 className="mt-4 text-lg font-semibold">Начните поиск кандидатов</h3>
-              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                Введите ваш API токен HH.ru и настройте параметры вакансии для поиска подходящих специалистов
-              </p>
-            </CardContent>
-          </Card>
+              </div>
+            )}
+          </>
         )}
       </main>
 
