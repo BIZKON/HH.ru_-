@@ -10,14 +10,18 @@ export async function POST(request: NextRequest) {
     // Получаем пользователя
     const user = await getUserFromSession()
     if (!user) {
+      console.log("[Search API] User not authenticated")
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 })
     }
+
+    console.log(`[Search API] User authenticated: ${user.id}`)
 
     // Проверяем rate limit
     const identifier = getClientIdentifier(request, user.id)
     const rateLimitResult = searchRateLimiter.check(identifier)
 
     if (!rateLimitResult.allowed) {
+      console.log(`[Search API] Rate limit exceeded for user ${user.id}`)
       return NextResponse.json(
         {
           error: "Слишком много поисковых запросов. Пожалуйста, подождите.",
@@ -38,8 +42,14 @@ export async function POST(request: NextRequest) {
     // Получаем токен из БД
     const token = await getDecryptedToken(user.id)
     if (!token) {
-      return NextResponse.json({ error: "API токен не найден. Пожалуйста, введите токен." }, { status: 400 })
+      console.log(`[Search API] Token not found for user ${user.id}`)
+      return NextResponse.json(
+        { error: "API токен HH.ru не найден. Пожалуйста, добавьте токен в настройках." },
+        { status: 403 }
+      )
     }
+
+    console.log(`[Search API] Token found for user ${user.id}`)
 
     const body = await request.json()
     const { resume_search_period, ...searchParams } = body as {
@@ -61,7 +71,11 @@ export async function POST(request: NextRequest) {
       ;(params as any).resume_search_period = resume_search_period
     }
 
+    console.log(`[Search API] Searching with params:`, { text: params.text, page: params.page })
+
     const result = await searchResumes(token, params)
+
+    console.log(`[Search API] Found ${result.found} resumes, returning ${result.data.length} items`)
 
     const candidates = result.data.map(transformResumeToCandidate)
 
@@ -73,8 +87,19 @@ export async function POST(request: NextRequest) {
       page: result.page,
     })
   } catch (error) {
-    console.error("Search API error:", error)
+    console.error("[Search API] Error:", error)
     const message = error instanceof Error ? error.message : "Произошла ошибка при поиске"
+
+    // Проверяем, если это ошибка от HH.ru API
+    if (message.includes("403") || message.includes("Forbidden")) {
+      return NextResponse.json(
+        {
+          error: "Доступ к API HH.ru запрещен. Возможные причины:\n1. Токен недействителен или истек\n2. У токена нет доступа к платному API HH.ru\n3. Превышен лимит запросов\n\nПроверьте статус токена на dev.hh.ru",
+        },
+        { status: 403 }
+      )
+    }
+
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
