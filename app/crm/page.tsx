@@ -113,6 +113,12 @@ export default function CRMPage() {
                 База кандидатов
               </Button>
             </Link>
+            <Link href="/crm/pipeline">
+              <Button variant="outline" size="sm" className="gap-2 bg-primary/10 border-primary/20">
+                <TrendingUp className="h-4 w-4" />
+                Воронка найма
+              </Button>
+            </Link>
           </div>
           <h1 className="text-3xl font-bold">CRM Система</h1>
           <p className="text-muted-foreground mt-1">Управление кандидатами и откликами</p>
