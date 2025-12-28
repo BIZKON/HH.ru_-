@@ -184,6 +184,188 @@ export const exports = sqliteTable("exports", {
   createdAtIdx: index("idx_exports_created").on(table.createdAt),
 }))
 
+// ==================== CRM EXTENDED TABLES ====================
+
+// Pipeline stages (Kanban board)
+export const pipelineStages = sqliteTable("pipeline_stages", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  vacancyId: text("vacancy_id").references(() => vacancies.id, { onDelete: "cascade" }),
+  candidateId: text("candidate_id").notNull().references(() => candidates.id, { onDelete: "cascade" }),
+  stage: text("stage").notNull(), // sourcing, screening, contacted, interview_scheduled, interview_passed, offer, hired, rejected
+  position: integer("position").notNull(), // порядок внутри колонки
+  assignedTo: text("assigned_to").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  movedAt: integer("moved_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  movedBy: text("moved_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  vacancyIdIdx: index("idx_pipeline_vacancy").on(table.vacancyId),
+  candidateIdIdx: index("idx_pipeline_candidate").on(table.candidateId),
+  stageIdx: index("idx_pipeline_stage").on(table.stage),
+  assignedToIdx: index("idx_pipeline_assigned").on(table.assignedTo),
+}))
+
+// Tasks for recruiters
+export const tasks = sqliteTable("tasks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type"), // call, interview, send_test, feedback, offer, follow_up
+  priority: text("priority").notNull().default("medium"), // low, medium, high, urgent
+  status: text("status").notNull().default("pending"), // pending, in_progress, completed, cancelled
+  dueDate: integer("due_date", { mode: "timestamp" }),
+  assignedTo: text("assigned_to").references(() => users.id, { onDelete: "set null" }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  candidateId: text("candidate_id").references(() => candidates.id, { onDelete: "cascade" }),
+  vacancyId: text("vacancy_id").references(() => vacancies.id, { onDelete: "set null" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  assignedToIdx: index("idx_tasks_assigned").on(table.assignedTo),
+  dueDateIdx: index("idx_tasks_due").on(table.dueDate),
+  candidateIdIdx: index("idx_tasks_candidate").on(table.candidateId),
+  statusIdx: index("idx_tasks_status").on(table.status),
+}))
+
+// Task comments
+export const taskComments = sqliteTable("task_comments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  taskId: text("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  text: text("text").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  taskIdIdx: index("idx_task_comments_task").on(table.taskId),
+}))
+
+// Candidate notes
+export const candidateNotes = sqliteTable("candidate_notes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  candidateId: text("candidate_id").notNull().references(() => candidates.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  note: text("note").notNull(),
+  isImportant: integer("is_important", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  candidateIdIdx: index("idx_candidate_notes_candidate").on(table.candidateId),
+  createdAtIdx: index("idx_candidate_notes_created").on(table.createdAt),
+}))
+
+// Candidate evaluations (after interviews)
+export const candidateEvaluations = sqliteTable("candidate_evaluations", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  candidateId: text("candidate_id").notNull().references(() => candidates.id, { onDelete: "cascade" }),
+  vacancyId: text("vacancy_id").references(() => vacancies.id, { onDelete: "set null" }),
+  evaluatorId: text("evaluator_id").references(() => users.id, { onDelete: "set null" }),
+  interviewType: text("interview_type"), // screening, technical, hr, final
+  technicalSkills: integer("technical_skills"), // 1-5
+  softSkills: integer("soft_skills"), // 1-5
+  culturalFit: integer("cultural_fit"), // 1-5
+  overallRating: integer("overall_rating"), // 1-5
+  notes: text("notes"),
+  recommendation: text("recommendation"), // hire, maybe, reject
+  evaluatedAt: integer("evaluated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  candidateIdIdx: index("idx_evaluations_candidate").on(table.candidateId),
+  vacancyIdIdx: index("idx_evaluations_vacancy").on(table.vacancyId),
+  evaluatorIdIdx: index("idx_evaluations_evaluator").on(table.evaluatorId),
+}))
+
+// Communication log (all channels)
+export const communications = sqliteTable("communications", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  candidateId: text("candidate_id").notNull().references(() => candidates.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(), // hh, email, sms, call, whatsapp
+  direction: text("direction").notNull(), // inbound, outbound
+  subject: text("subject"),
+  body: text("body"),
+  status: text("status").notNull().default("sent"), // sent, delivered, read, failed
+  sentBy: text("sent_by").references(() => users.id, { onDelete: "set null" }),
+  sentAt: integer("sent_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  readAt: integer("read_at", { mode: "timestamp" }),
+  metadata: text("metadata"), // JSON with channel-specific data
+}, (table) => ({
+  candidateIdIdx: index("idx_communications_candidate").on(table.candidateId),
+  channelIdx: index("idx_communications_channel").on(table.channel),
+  sentAtIdx: index("idx_communications_sent").on(table.sentAt),
+}))
+
+// Message templates
+export const messageTemplates = sqliteTable("message_templates", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  category: text("category"), // invitation, rejection, interview_confirm, offer, follow_up
+  subject: text("subject"),
+  body: text("body").notNull(),
+  variables: text("variables"), // JSON array of available variables
+  channel: text("channel").notNull().default("email"), // email, sms, hh
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  categoryIdx: index("idx_templates_category").on(table.category),
+  channelIdx: index("idx_templates_channel").on(table.channel),
+}))
+
+// Sync status tracking
+export const syncStatus = sqliteTable("sync_status", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  entityType: text("entity_type").notNull(), // negotiations, messages, vacancies
+  lastSyncedAt: integer("last_synced_at", { mode: "timestamp" }),
+  status: text("status").notNull(), // success, error, in_progress
+  itemsSynced: integer("items_synced").notNull().default(0),
+  errorMessage: text("error_message"),
+  metadata: text("metadata"), // JSON with sync details
+}, (table) => ({
+  entityTypeIdx: index("idx_sync_status_entity").on(table.entityType),
+  lastSyncedIdx: index("idx_sync_status_last_synced").on(table.lastSyncedAt),
+}))
+
+// Automation rules
+export const automationRules = sqliteTable("automation_rules", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  description: text("description"),
+  triggerType: text("trigger_type").notNull(), // stage_entered, time_elapsed, score_threshold, status_changed
+  triggerConditions: text("trigger_conditions"), // JSON
+  actions: text("actions").notNull(), // JSON array of actions
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  triggerTypeIdx: index("idx_automation_trigger").on(table.triggerType),
+  enabledIdx: index("idx_automation_enabled").on(table.enabled),
+}))
+
+// Automation execution log
+export const automationExecutions = sqliteTable("automation_executions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  ruleId: text("rule_id").notNull().references(() => automationRules.id, { onDelete: "cascade" }),
+  candidateId: text("candidate_id").references(() => candidates.id, { onDelete: "set null" }),
+  executedAt: integer("executed_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  success: integer("success", { mode: "boolean" }).notNull(),
+  result: text("result"),
+  error: text("error"),
+}, (table) => ({
+  ruleIdIdx: index("idx_automation_exec_rule").on(table.ruleId),
+  candidateIdIdx: index("idx_automation_exec_candidate").on(table.candidateId),
+  executedAtIdx: index("idx_automation_exec_time").on(table.executedAt),
+}))
+
+// User roles and permissions
+export const userRoles = sqliteTable("user_roles", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull(), // admin, hr_manager, recruiter, viewer
+  scope: text("scope"), // JSON: vacancy_ids array or 'all'
+  grantedBy: text("granted_by").references(() => users.id, { onDelete: "set null" }),
+  grantedAt: integer("granted_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  userIdIdx: index("idx_user_roles_user").on(table.userId),
+  roleIdx: index("idx_user_roles_role").on(table.role),
+}))
+
 // ==================== CRM ТАБЛИЦЫ ====================
 
 export const negotiations = sqliteTable("negotiations", {
@@ -295,4 +477,28 @@ export type Activity = typeof activities.$inferSelect
 export type NewActivity = typeof activities.$inferInsert
 export type AuditLog = typeof auditLog.$inferSelect
 export type NewAuditLog = typeof auditLog.$inferInsert
+
+// CRM Extended Types
+export type PipelineStage = typeof pipelineStages.$inferSelect
+export type NewPipelineStage = typeof pipelineStages.$inferInsert
+export type Task = typeof tasks.$inferSelect
+export type NewTask = typeof tasks.$inferInsert
+export type TaskComment = typeof taskComments.$inferSelect
+export type NewTaskComment = typeof taskComments.$inferInsert
+export type CandidateNote = typeof candidateNotes.$inferSelect
+export type NewCandidateNote = typeof candidateNotes.$inferInsert
+export type CandidateEvaluation = typeof candidateEvaluations.$inferSelect
+export type NewCandidateEvaluation = typeof candidateEvaluations.$inferInsert
+export type Communication = typeof communications.$inferSelect
+export type NewCommunication = typeof communications.$inferInsert
+export type MessageTemplate = typeof messageTemplates.$inferSelect
+export type NewMessageTemplate = typeof messageTemplates.$inferInsert
+export type SyncStatus = typeof syncStatus.$inferSelect
+export type NewSyncStatus = typeof syncStatus.$inferInsert
+export type AutomationRule = typeof automationRules.$inferSelect
+export type NewAutomationRule = typeof automationRules.$inferInsert
+export type AutomationExecution = typeof automationExecutions.$inferSelect
+export type NewAutomationExecution = typeof automationExecutions.$inferInsert
+export type UserRole = typeof userRoles.$inferSelect
+export type NewUserRole = typeof userRoles.$inferInsert
 
