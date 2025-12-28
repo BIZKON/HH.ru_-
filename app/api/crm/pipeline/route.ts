@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { pipelineStages, candidates, vacancies, activities } from "@/lib/db/schema"
+import { pipelineStages, candidates, vacancies, activities, tasks } from "@/lib/db/schema"
 import { eq, and, desc, sql } from "drizzle-orm"
 import { getUserFromSession } from "@/lib/auth/session"
 import { apiRateLimiter, getClientIdentifier } from "@/lib/rate-limiter"
@@ -76,8 +76,34 @@ export async function GET(request: NextRequest) {
 
     const stages = await query
 
+    // Get task counts for all candidates
+    const candidateIds = [...new Set(stages.map((s) => s.candidateId))]
+    const taskCounts = await db
+      .select({
+        candidateId: tasks.candidateId,
+        total: sql<number>`count(*)`.as("total"),
+        pending: sql<number>`sum(case when ${tasks.status} in ('pending', 'in_progress') then 1 else 0 end)`.as(
+          "pending",
+        ),
+      })
+      .from(tasks)
+      .where(sql`${tasks.candidateId} in (${sql.raw(candidateIds.map(() => "?").join(","))})`)
+      .groupBy(tasks.candidateId)
+
+    // Create a map for quick lookup
+    const taskCountMap = new Map(
+      taskCounts.map((tc) => [tc.candidateId, { total: Number(tc.total), pending: Number(tc.pending) }]),
+    )
+
+    // Enrich stages with task counts
+    const enrichedStages = stages.map((stage) => ({
+      ...stage,
+      tasksCount: taskCountMap.get(stage.candidateId)?.total || 0,
+      pendingTasksCount: taskCountMap.get(stage.candidateId)?.pending || 0,
+    }))
+
     // Group by stage for easier frontend consumption
-    const stageGroups = stages.reduce(
+    const stageGroups = enrichedStages.reduce(
       (acc, item) => {
         const stageName = item.stage || "sourcing"
         if (!acc[stageName]) {
@@ -86,12 +112,12 @@ export async function GET(request: NextRequest) {
         acc[stageName].push(item)
         return acc
       },
-      {} as Record<string, typeof stages>,
+      {} as Record<string, typeof enrichedStages>,
     )
 
     return NextResponse.json({
       stages: stageGroups,
-      total: stages.length,
+      total: enrichedStages.length,
     })
   } catch (error) {
     console.error("[Pipeline API] Error:", error)

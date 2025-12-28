@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Calendar,
   MoreVertical,
+  CheckSquare,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -45,6 +46,8 @@ export interface CandidateCardProps {
   notes?: string | null
   assignedTo?: string | null
   movedAt?: Date
+  tasksCount?: number
+  pendingTasksCount?: number
   isDragging?: boolean
   onOpenProfile?: (candidateId: string) => void
   onAddNote?: (cardId: string) => void
@@ -60,6 +63,8 @@ export function CandidateCard({
   notes,
   assignedTo,
   movedAt,
+  tasksCount = 0,
+  pendingTasksCount = 0,
   isDragging,
   onOpenProfile,
   onAddNote,
@@ -220,6 +225,15 @@ export function CandidateCard({
               <Badge variant="outline" className="text-xs px-2 py-0">
                 <Star className="h-3 w-3 mr-1 fill-amber-400 text-amber-400" />
                 Paid
+              </Badge>
+            )}
+            {tasksCount > 0 && (
+              <Badge
+                variant={pendingTasksCount > 0 ? "destructive" : "secondary"}
+                className="text-xs px-2 py-0"
+              >
+                <CheckSquare className="h-3 w-3 mr-1" />
+                {pendingTasksCount > 0 ? pendingTasksCount : tasksCount}
               </Badge>
             )}
             {movedAt && (

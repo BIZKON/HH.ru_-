@@ -1,8 +1,63 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { pipelineStages, activities } from "@/lib/db/schema"
+import { pipelineStages, activities, tasks } from "@/lib/db/schema"
 import { eq, and, gte, lte, sql } from "drizzle-orm"
 import { getUserFromSession } from "@/lib/auth/session"
+
+// Auto-task templates for each stage
+const stageTaskTemplates: Record<
+  string,
+  Array<{ title: string; type: string; priority: string; description: string }>
+> = {
+  screening: [
+    {
+      title: "Просмотреть резюме",
+      type: "review",
+      priority: "high",
+      description: "Проверить соответствие кандидата требованиям вакансии",
+    },
+  ],
+  contacted: [
+    {
+      title: "Связаться с кандидатом",
+      type: "call",
+      priority: "high",
+      description: "Провести первичный звонок и обсудить условия",
+    },
+  ],
+  interview_scheduled: [
+    {
+      title: "Провести интервью",
+      type: "interview",
+      priority: "urgent",
+      description: "Назначить и провести собеседование с кандидатом",
+    },
+  ],
+  interview_passed: [
+    {
+      title: "Собрать обратную связь",
+      type: "feedback",
+      priority: "high",
+      description: "Получить feedback от интервьюеров",
+    },
+  ],
+  offer: [
+    {
+      title: "Подготовить оффер",
+      type: "offer",
+      priority: "urgent",
+      description: "Составить и отправить предложение о работе",
+    },
+  ],
+  hired: [
+    {
+      title: "Организовать онбординг",
+      type: "onboarding",
+      priority: "medium",
+      description: "Подготовить план адаптации нового сотрудника",
+    },
+  ],
+}
 
 /**
  * POST /api/crm/pipeline/move
@@ -142,6 +197,32 @@ export async function POST(request: NextRequest) {
             position: toPosition,
           }),
         })
+
+        // Auto-create tasks for new stage
+        const taskTemplates = stageTaskTemplates[toStage]
+        if (taskTemplates && taskTemplates.length > 0) {
+          const now = new Date()
+          const dueDate = new Date(now.getTime() + 24 * 60 * 60 * 1000) // +1 day
+
+          for (const template of taskTemplates) {
+            await tx.insert(tasks).values({
+              candidateId: card.candidateId,
+              vacancyId: card.vacancyId,
+              title: template.title,
+              description: template.description,
+              type: template.type,
+              priority: template.priority,
+              status: "pending",
+              dueDate,
+              assignedTo: card.assignedTo,
+              createdBy: user.id,
+            })
+          }
+
+          console.log(
+            `[Pipeline Move] Auto-created ${taskTemplates.length} task(s) for stage ${toStage}`,
+          )
+        }
       }
     })
 

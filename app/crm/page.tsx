@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, MessageSquare, TrendingUp, UserCheck, Calendar, ArrowLeft } from "lucide-react"
+import { Users, MessageSquare, TrendingUp, UserCheck, Calendar, ArrowLeft, CheckSquare } from "lucide-react"
 import type { Negotiation, CRMStats } from "@/lib/types"
 import Link from "next/link"
 
@@ -117,6 +117,12 @@ export default function CRMPage() {
               <Button variant="outline" size="sm" className="gap-2 bg-primary/10 border-primary/20">
                 <TrendingUp className="h-4 w-4" />
                 Воронка найма
+              </Button>
+            </Link>
+            <Link href="/crm/tasks">
+              <Button variant="outline" size="sm" className="gap-2 bg-transparent">
+                <CheckSquare className="h-4 w-4" />
+                Задачи
               </Button>
             </Link>
           </div>
