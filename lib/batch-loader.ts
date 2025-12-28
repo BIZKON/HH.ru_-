@@ -135,55 +135,92 @@ export async function loadAllResumes(
 
         // Параллельно получаем полные данные для батча
         const enrichmentPromises = batch.map(async (resume) => {
-          try {
-            const response = await fetch("/api/resume/enrich", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ resumeId: resume.id }),
-            })
+          const maxAttempts = 2
+          let lastError: Error | null = null
 
-            if (response.ok) {
-              const data = await response.json()
-              return data.raw as HHResume // Возвращаем обогащенные данные
-            } else {
-              const errorText = await response.text()
-              console.warn(`[v0] Failed to enrich resume ${resume.id}:`, errorText)
-              return resume // Возвращаем исходные данные при ошибке
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+              const response = await fetch("/api/resume/enrich", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ resumeId: resume.id }),
+              })
+
+              if (response.ok) {
+                const data = await response.json()
+                if (attempt > 0) {
+                  console.log(`[Batch Loader] Successfully enriched resume ${resume.id} on attempt ${attempt + 1}`)
+                }
+                return { success: true, resume: data.raw as HHResume, error: null }
+              }
+
+              // Обработка ошибок HTTP
+              if (response.status === 429) {
+                // Rate limiting - ждем и пробуем еще раз
+                const retryAfter = response.headers.get("Retry-After")
+                const delay = retryAfter ? Number.parseInt(retryAfter) * 1000 : 2000
+                console.warn(`[Batch Loader] Rate limited for resume ${resume.id}, waiting ${delay}ms`)
+                await new Promise((resolve) => setTimeout(resolve, delay))
+                continue
+              } else if (response.status >= 500) {
+                // Серверная ошибка - пробуем еще раз
+                console.warn(`[Batch Loader] Server error ${response.status} for resume ${resume.id}, attempt ${attempt + 1}/${maxAttempts}`)
+                if (attempt < maxAttempts - 1) {
+                  await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+                  continue
+                }
+              }
+
+              // Другие ошибки - возвращаем сразу
+              const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+              lastError = new Error(errorData.error || `HTTP ${response.status}`)
+              break
+            } catch (error) {
+              lastError = error instanceof Error ? error : new Error(String(error))
+              console.warn(
+                `[Batch Loader] Network error enriching resume ${resume.id}, attempt ${attempt + 1}/${maxAttempts}:`,
+                lastError.message,
+              )
+
+              // Ждем перед следующей попыткой
+              if (attempt < maxAttempts - 1) {
+                await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+              }
             }
-          } catch (error) {
-            console.warn(
-              `[v0] Error enriching resume ${resume.id}:`,
-              error instanceof Error ? error.message : String(error),
-            )
-            return resume // Возвращаем исходные данные при ошибке
           }
+
+          // Все попытки исчерпаны
+          console.error(`[Batch Loader] Failed to enrich resume ${resume.id} after ${maxAttempts} attempts:`, lastError?.message)
+          return { success: false, resume, error: lastError }
         })
 
-        const enrichedBatch = await Promise.allSettled(enrichmentPromises)
-        
+        const enrichedBatch = await Promise.all(enrichmentPromises)
+
         // Обрабатываем результаты
         enrichedBatch.forEach((result, index) => {
-          if (result.status === "fulfilled") {
-            const enrichedResume = result.value
+          if (result.success) {
+            const enrichedResume = result.resume
             // Проверяем, получили ли мы имена после обогащения
             const hasNameAfter = enrichedResume.first_name || enrichedResume.last_name || enrichedResume.middle_name
             const hadNameBefore = batch[index].first_name || batch[index].last_name || batch[index].middle_name
-            
+
             if (hasNameAfter && !hadNameBefore) {
               enrichedCount++
-              console.log(`[v0] Successfully enriched resume ${batch[index].id} with name data`)
+              if (process.env.NODE_ENV === "development") {
+                console.log(`[Batch Loader] ✓ Successfully enriched resume ${batch[index].id} with name data`)
+              }
             } else if (!hasNameAfter && !hadNameBefore) {
               failedCount++
-              console.warn(`[v0] Resume ${batch[index].id} still has no name data after enrichment attempt`)
+              console.warn(`[Batch Loader] ⚠ Resume ${batch[index].id} still has no name data after enrichment attempt`)
             }
-            
+
             enrichedResumes.push(enrichedResume)
           } else {
             failedCount++
-            console.warn(`[v0] Failed to enrich resume ${batch[index].id}:`, result.reason)
-            enrichedResumes.push(batch[index]) // Используем исходные данные
+            console.error(`[Batch Loader] ✗ Failed to enrich resume ${batch[index].id}:`, result.error?.message)
+            enrichedResumes.push(result.resume) // Используем исходные данные
           }
         })
 

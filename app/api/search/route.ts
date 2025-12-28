@@ -3,6 +3,7 @@ import { searchResumes, transformResumeToCandidate } from "@/lib/hh-api"
 import type { HHSearchParams } from "@/lib/types"
 import { getUserFromSession } from "@/lib/auth/session"
 import { getDecryptedToken } from "@/lib/db/queries/tokens"
+import { searchRateLimiter, getClientIdentifier } from "@/lib/rate-limiter"
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,6 +11,28 @@ export async function POST(request: NextRequest) {
     const user = await getUserFromSession()
     if (!user) {
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 })
+    }
+
+    // Проверяем rate limit
+    const identifier = getClientIdentifier(request, user.id)
+    const rateLimitResult = searchRateLimiter.check(identifier)
+
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        {
+          error: "Слишком много поисковых запросов. Пожалуйста, подождите.",
+          retryAfter: rateLimitResult.retryAfter,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": rateLimitResult.retryAfter?.toString() || "60",
+            "X-RateLimit-Limit": "20",
+            "X-RateLimit-Remaining": rateLimitResult.remaining.toString(),
+            "X-RateLimit-Reset": new Date(rateLimitResult.resetTime).toISOString(),
+          },
+        },
+      )
     }
 
     // Получаем токен из БД

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       scoreRange,
     } = await request.json()
 
-    if (!candidatesCount || !fileName) {
+    if (candidatesCount === undefined || candidatesCount === null || !fileName) {
       return NextResponse.json({ error: "candidatesCount и fileName обязательны" }, { status: 400 })
     }
 
