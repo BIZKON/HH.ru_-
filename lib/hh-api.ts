@@ -1,4 +1,5 @@
 import type { HHSearchParams, HHResume, Candidate, HHVacancy } from "./types"
+import { fetchWithRetry } from "./fetch-with-retry"
 
 const HH_API_BASE = "https://api.hh.ru"
 // Format: AppName/Version (email)
@@ -156,7 +157,7 @@ export async function searchResumes(
   // Add parameter to request contact information (name, phone, email)
   searchParams.append("with_fields", "contacts")
 
-  const response = await fetch(`${HH_API_BASE}/resumes?${searchParams}`, {
+  const response = await fetchWithRetry(`${HH_API_BASE}/resumes?${searchParams}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       "User-Agent": HH_USER_AGENT,
@@ -180,7 +181,7 @@ export async function searchResumes(
 }
 
 export async function getResumeDetails(token: string, resumeId: string): Promise<HHResume> {
-  const response = await fetch(`${HH_API_BASE}/resumes/${resumeId}?with_fields=contacts`, {
+  const response = await fetchWithRetry(`${HH_API_BASE}/resumes/${resumeId}?with_fields=contacts`, {
     headers: {
       Authorization: `Bearer ${token}`,
       "User-Agent": HH_USER_AGENT,
@@ -257,20 +258,27 @@ export async function sendInvitation(
   resumeId: string,
   message: string,
 ): Promise<void> {
-  const response = await fetch(`${HH_API_BASE}/invitations`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "User-Agent": HH_USER_AGENT,
-      "HH-User-Agent": HH_USER_AGENT,
+  const response = await fetchWithRetry(
+    `${HH_API_BASE}/invitations`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "User-Agent": HH_USER_AGENT,
+        "HH-User-Agent": HH_USER_AGENT,
+      },
+      body: JSON.stringify({
+        vacancy_id: vacancyId,
+        resume_id: resumeId,
+        message,
+      }),
     },
-    body: JSON.stringify({
-      vacancy_id: vacancyId,
-      resume_id: resumeId,
-      message,
-    }),
-  })
+    {
+      maxRetries: 2, // Для POST запросов меньше retries
+      initialDelay: 2000,
+    },
+  )
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
@@ -329,7 +337,7 @@ export function downloadCsv(content: string, filename: string): void {
 }
 
 export async function getMyVacancies(token: string): Promise<HHVacancy[]> {
-  const response = await fetch(`${HH_API_BASE}/me/vacancies`, {
+  const response = await fetchWithRetry(`${HH_API_BASE}/me/vacancies`, {
     headers: {
       Authorization: `Bearer ${token}`,
       "User-Agent": HH_USER_AGENT,
@@ -373,7 +381,7 @@ export async function getVacancyById(
     salaryTo: number | null
   }
 }> {
-  const response = await fetch(`${HH_API_BASE}/vacancies/${vacancyId}`, {
+  const response = await fetchWithRetry(`${HH_API_BASE}/vacancies/${vacancyId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       "User-Agent": HH_USER_AGENT,
@@ -430,7 +438,7 @@ export async function getNegotiations(
   if (params?.state) searchParams.append("state", params.state)
   if (params?.page) searchParams.append("page", params.page.toString())
 
-  const response = await fetch(`${HH_API_BASE}/negotiations?${searchParams}`, {
+  const response = await fetchWithRetry(`${HH_API_BASE}/negotiations?${searchParams}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       "User-Agent": HH_USER_AGENT,
@@ -448,7 +456,7 @@ export async function getNegotiations(
 
 // Get negotiation messages
 export async function getNegotiationMessages(token: string, negotiationId: string): Promise<{ items: any[] }> {
-  const response = await fetch(`${HH_API_BASE}/negotiations/${negotiationId}/messages`, {
+  const response = await fetchWithRetry(`${HH_API_BASE}/negotiations/${negotiationId}/messages`, {
     headers: {
       Authorization: `Bearer ${token}`,
       "User-Agent": HH_USER_AGENT,
@@ -466,16 +474,23 @@ export async function getNegotiationMessages(token: string, negotiationId: strin
 
 // Send message in negotiation
 export async function sendNegotiationMessage(token: string, negotiationId: string, message: string): Promise<void> {
-  const response = await fetch(`${HH_API_BASE}/negotiations/${negotiationId}/messages`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "User-Agent": HH_USER_AGENT,
-      "HH-User-Agent": HH_USER_AGENT,
+  const response = await fetchWithRetry(
+    `${HH_API_BASE}/negotiations/${negotiationId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "User-Agent": HH_USER_AGENT,
+        "HH-User-Agent": HH_USER_AGENT,
+      },
+      body: JSON.stringify({ message }),
     },
-    body: JSON.stringify({ message }),
-  })
+    {
+      maxRetries: 2,
+      initialDelay: 2000,
+    },
+  )
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
@@ -485,16 +500,23 @@ export async function sendNegotiationMessage(token: string, negotiationId: strin
 
 // Update negotiation state
 export async function updateNegotiationState(token: string, negotiationId: string, state: string): Promise<void> {
-  const response = await fetch(`${HH_API_BASE}/negotiations/${negotiationId}`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "User-Agent": HH_USER_AGENT,
-      "HH-User-Agent": HH_USER_AGENT,
+  const response = await fetchWithRetry(
+    `${HH_API_BASE}/negotiations/${negotiationId}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "User-Agent": HH_USER_AGENT,
+        "HH-User-Agent": HH_USER_AGENT,
+      },
+      body: JSON.stringify({ state }),
     },
-    body: JSON.stringify({ state }),
-  })
+    {
+      maxRetries: 2,
+      initialDelay: 2000,
+    },
+  )
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
@@ -504,14 +526,21 @@ export async function updateNegotiationState(token: string, negotiationId: strin
 
 // Pay for resume access
 export async function payResumeAccess(token: string, resumeId: string): Promise<void> {
-  const response = await fetch(`${HH_API_BASE}/resumes/${resumeId}/access`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "User-Agent": HH_USER_AGENT,
-      "HH-User-Agent": HH_USER_AGENT,
+  const response = await fetchWithRetry(
+    `${HH_API_BASE}/resumes/${resumeId}/access`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "User-Agent": HH_USER_AGENT,
+        "HH-User-Agent": HH_USER_AGENT,
+      },
     },
-  })
+    {
+      maxRetries: 2, // Для POST запросов меньше retries
+      initialDelay: 2000,
+    },
+  )
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
