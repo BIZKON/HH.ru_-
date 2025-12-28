@@ -18,6 +18,7 @@ import type { ScoringConfig } from "@/lib/scoring"
 import type { SearchFilters, ScoredCandidate, VacancyConfig } from "@/lib/types"
 import { Rocket, Search, Database, BookOpen, LayoutDashboard, MessagesSquare, User, Key } from "lucide-react"
 import { AuthDialog } from "@/components/auth-dialog"
+import { DiagnosticPanel } from "@/components/diagnostic-panel"
 import Link from "next/link"
 
 const defaultFilters: SearchFilters = {
@@ -308,6 +309,8 @@ export default function HomePage() {
       <AuthDialog open={isAuthDialogOpen} onOpenChange={setIsAuthDialogOpen} />
 
       <main className="mx-auto max-w-5xl space-y-6 p-4">
+        <DiagnosticPanel />
+
         {isAuthenticated === false && (
           <Card>
             <CardHeader>
