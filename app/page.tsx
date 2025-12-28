@@ -503,7 +503,6 @@ export default function HomePage() {
         onOpenChange={setIsInviteDialogOpen}
         candidate={inviteCandidate}
         vacancyConfig={vacancyConfig}
-        token={token}
         dbVacancyId={currentDbVacancyId}
       />
     </div>
