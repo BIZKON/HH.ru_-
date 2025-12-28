@@ -22,6 +22,7 @@ import { NotesPanel, Note } from "@/components/crm/notes-panel"
 import { EvaluationsPanel, Evaluation } from "@/components/crm/evaluations-panel"
 import { TaskList, Task } from "@/components/crm/task-list"
 import { TaskForm, TaskFormData } from "@/components/crm/task-form"
+import { CommunicationPanel, Communication } from "@/components/crm/communication-panel"
 import { formatDistanceToNow } from "date-fns"
 import { ru } from "date-fns/locale"
 
@@ -153,6 +154,27 @@ export default function CandidateProfilePage() {
   const handleEditTask = (task: Task) => {
     setEditingTask(task)
     setShowTaskForm(true)
+  }
+
+  const handleSendMessage = async (message: {
+    type: string
+    subject?: string
+    body: string
+  }) => {
+    const response = await fetch("/api/crm/communications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        candidateId,
+        ...message,
+      }),
+    })
+
+    if (response.ok) {
+      await fetchData()
+    } else {
+      throw new Error("Failed to send message")
+    }
   }
 
   if (loading) {
@@ -332,6 +354,9 @@ export default function CandidateProfilePage() {
             Оценки ({evaluations.length})
           </TabsTrigger>
           <TabsTrigger value="tasks">Задачи ({tasks.length})</TabsTrigger>
+          <TabsTrigger value="communications">
+            Коммуникации ({data?.communications.length || 0})
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -443,6 +468,16 @@ export default function CandidateProfilePage() {
             onEdit={handleEditTask}
             onDelete={handleDeleteTask}
             onStatusChange={handleStatusChange}
+          />
+        </TabsContent>
+
+        <TabsContent value="communications">
+          <CommunicationPanel
+            candidateId={candidateId}
+            candidate={candidate}
+            vacancy={pipelineHistory.length > 0 ? pipelineHistory[0].vacancy : null}
+            communications={data?.communications || []}
+            onSendMessage={handleSendMessage}
           />
         </TabsContent>
       </Tabs>
