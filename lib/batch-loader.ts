@@ -31,7 +31,6 @@ interface SearchParams {
 }
 
 export async function loadAllResumes(
-  token: string,
   searchParams: SearchParams,
   scoringConfig: ScoringConfig,
   onProgress: (progress: BatchProgress) => void,
@@ -59,7 +58,6 @@ export async function loadAllResumes(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token,
           ...searchParams,
           page,
           per_page: 20,
@@ -68,6 +66,15 @@ export async function loadAllResumes(
 
       if (!response.ok) {
         const error = await response.json()
+
+        // Специальная обработка для разных статусов
+        if (response.status === 401) {
+          throw new Error("Требуется авторизация. Пожалуйста, войдите в систему.")
+        }
+        if (response.status === 403) {
+          throw new Error("Доступ запрещен. Возможные причины:\n1. API токен HH.ru не добавлен\n2. Токен недействителен или истек\n3. У токена нет доступа к платному API HH.ru\n\nПроверьте настройки токена.")
+        }
+
         throw new Error(error.error || `Ошибка загрузки: ${response.status}`)
       }
 

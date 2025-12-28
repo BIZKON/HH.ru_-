@@ -20,7 +20,6 @@ interface InviteDialogProps {
   onOpenChange: (open: boolean) => void
   candidate: ScoredCandidate | null
   vacancyConfig: VacancyConfig | null
-  token: string
   applicationId?: string
   dbVacancyId?: string
 }
@@ -30,7 +29,6 @@ export function InviteDialog({
   onOpenChange,
   candidate,
   vacancyConfig,
-  token,
   applicationId,
   dbVacancyId,
 }: InviteDialogProps) {
@@ -45,7 +43,7 @@ export function InviteDialog({
   }, [open, vacancyConfig])
 
   const handleSendInvite = async () => {
-    if (!candidate || !vacancyConfig?.id || !token) return
+    if (!candidate || !vacancyConfig?.id) return
 
     setIsLoading(true)
     setResult(null)
@@ -55,7 +53,6 @@ export function InviteDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token,
           vacancy_id: vacancyConfig.id,
           resume_id: candidate.id,
           message: message.trim() || undefined,
